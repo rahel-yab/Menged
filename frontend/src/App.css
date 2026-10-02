@@ -47,3 +47,84 @@
 .about-cta:hover {
   background-color: #eff7f0 !important;
 }
+
+.terminal-map-frame {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  overflow: hidden;
+  border: 1px solid #e0e8e0;
+  border-radius: 28px;
+  background: #e8efe7;
+  box-shadow: 0 25px 70px rgba(29, 66, 40, 0.13);
+}
+
+.terminal-map {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.menged-terminal-marker {
+  background: transparent;
+  border: none;
+}
+
+.terminal-map-legend {
+  position: absolute;
+  z-index: 500;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 80px);
+  padding: 10px 13px;
+  border: 1px solid #e8ede8;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+  color: #465449;
+  font-size: 10px;
+}
+
+.terminal-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legend-dot.low {
+  background: #26965f;
+}
+
+.legend-dot.moderate {
+  background: #e9a23b;
+}
+
+.legend-dot.busy {
+  background: #dc5656;
+}
+
+@media (max-width: 640px) {
+  .terminal-map-frame {
+    height: 390px;
+    border-radius: 20px;
+  }
+
+  .terminal-map-legend {
+    left: 10px;
+    bottom: 10px;
+    gap: 7px;
+    padding: 8px 10px;
+    font-size: 9px;
+  }
+}

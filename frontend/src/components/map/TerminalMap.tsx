@@ -52,7 +52,7 @@ const crowdColors = {
 };
 
 function createTerminalIcon(crowd: Terminal["crowd"]) {
-  const iconMarkup = renderToStaticMarkup(
+  const html = renderToStaticMarkup(
     <div
       style={{
         width: "42px",
@@ -74,21 +74,9 @@ function createTerminalIcon(crowd: Terminal["crowd"]) {
           display: "flex",
         }}
       >
-        ${""}
+        <BusFront size={18} strokeWidth={2.5} />
       </span>
     </div>
-  );
-
-  // Use a simple custom HTML marker, avoiding Leaflet's
-  // default image asset path issues with Vite.
-  const html = iconMarkup.replace(
-    "$",
-    ""
-  ).replace(
-    "</span>",
-    `${renderToStaticMarkup(
-      <BusFront size={18} color="white" strokeWidth={2.5} />
-    )}</span>`
   );
 
   return L.divIcon({

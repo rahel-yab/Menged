@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import terminalRoutes from "./routes/terminalRoutes.js";
+import routeSearchRoutes from "./routes/routeSearchRoutes.js";
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.get("/api/health", (_req, res) => {
 
 // Terminal endpoints
 app.use("/api/terminals", terminalRoutes);
+app.use("/api/routes", routeSearchRoutes);
 
 // Handle unknown routes
 app.use((_req, res) => {

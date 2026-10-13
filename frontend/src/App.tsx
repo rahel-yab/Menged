@@ -31,6 +31,15 @@ type Terminal = {
   wait: string;
 };
 
+type RouteResult = {
+  from: { name: string; area: string };
+  to: { name: string; area: string };
+  stops: { name: string; area: string }[];
+  transfers: number;
+  note: string;
+  verified: boolean;
+};
+
 const terminals: Terminal[] = [
   {
     id: 1,
@@ -77,6 +86,9 @@ function App() {
   const [selectedTerminal, setSelectedTerminal] = useState<number | null>(
     null
   );
+  const [routeResults, setRouteResults] = useState<RouteResult[]>([]);
+  const [routeMessage, setRouteMessage] = useState("");
+  const [searching, setSearching] = useState(false);
 
   const t = (key: TranslationKey) => translate(language, key);
 
@@ -87,17 +99,30 @@ function App() {
     setTo(from);
   }
 
-  function handleSearch(event: FormEvent<HTMLFormElement>) {
+  async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!from.trim() || !to.trim()) {
-      window.alert(t("enterBoth"));
+      setRouteResults([]);
+      setRouteMessage(t("enterBoth"));
       return;
     }
 
-    // Route search will be connected to the backend API
-    // in the next development stage.
-    window.alert(t("searchComingSoon"));
+    setSearching(true);
+    setRouteResults([]);
+    setRouteMessage("");
+    try {
+      const params = new URLSearchParams({ from, to });
+      const response = await fetch(`http://localhost:3000/api/routes/search?${params}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Route search failed.");
+      setRouteResults(result.data ?? []);
+      setRouteMessage(result.message ?? "");
+    } catch {
+      setRouteMessage("Could not reach Menged's API. Start the backend and try again.");
+    } finally {
+      setSearching(false);
+    }
   }
 
   return (
@@ -276,7 +301,7 @@ function App() {
                   className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#176B45] px-5 py-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#125737] active:scale-[0.99]"
                 >
                   <Search size={18} />
-                  {t("findRoute")}
+                  {searching ? "Searching…" : t("findRoute")}
                   <ArrowRight size={17} />
                 </button>
 
@@ -284,6 +309,21 @@ function App() {
                   {t("routeHint")}
                 </p>
               </form>
+
+              {(routeMessage || routeResults.length > 0) && (
+                <section aria-live="polite" className="mt-4 rounded-2xl border border-[#DCE9DE] bg-white p-5 shadow-sm">
+                  <h2 className="font-bold text-[#17251D]">Route options</h2>
+                  {routeMessage && <p className="mt-2 text-sm text-gray-600">{routeMessage}</p>}
+                  {routeResults.map((route, index) => (
+                    <article key={`${route.from.name}-${route.to.name}-${index}`} className="mt-3 rounded-xl bg-[#F5F8F4] p-4">
+                      <p className="font-semibold">{route.from.name} <ArrowRight size={14} className="mx-1 inline" /> {route.to.name}</p>
+                      <p className="mt-2 text-sm text-gray-600">{route.stops.map((stop) => stop.name).join(" → ")}</p>
+                      <p className="mt-2 text-xs text-gray-500">{route.transfers} transfers · {route.note}</p>
+                      {!route.verified && <p className="mt-2 text-xs font-semibold text-[#9A6715]">Demo route only — confirm the route and fare locally.</p>}
+                    </article>
+                  ))}
+                </section>
+              )}
 
               {/* Trust indicators */}
               <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs font-medium text-gray-500">
@@ -372,7 +412,7 @@ function App() {
             </div>
 
             {/* Terminal cards */}
-            <div className="mt-9 grid grid-cols-3 gap-5">
+            <div className="mt-9 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
               {terminals.map((terminal) => (
                 <article
                   key={terminal.id}
@@ -462,7 +502,7 @@ function App() {
               </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-3 gap-8">
+            <div className="mt-12 grid grid-cols-1 gap-8 md:grid-cols-3">
               {[
                 {
                   number: "01",

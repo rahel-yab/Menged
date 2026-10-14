@@ -3,22 +3,31 @@ import { terminals } from "../data/terminals.js";
 
 const router = Router();
 
-// Demonstration connections only. Confirm these taxi links with local operators
-// before treating them as real or using them to plan a journey.
+// Illustrative links for the prototype. Replace with connections confirmed
+// by local taxi operators before presenting these as usable journey advice.
 const demoConnections = [
-  { fromId: 1, toId: 2, transfers: 0, note: "Illustrative direct connection" },
-  { fromId: 1, toId: 3, viaId: 2, transfers: 1, note: "Illustrative connection; ask locally about transfers" },
-  { fromId: 2, toId: 3, transfers: 0, note: "Illustrative direct connection" },
+  { fromId: 1, toId: 2, transfers: 0, note: "Example connection; confirm locally." },
+  { fromId: 1, toId: 3, viaId: 2, transfers: 1, note: "Example transfer; confirm locally." },
+  { fromId: 2, toId: 3, transfers: 0, note: "Example connection; confirm locally." },
 ];
 
 function findTerminal(query: string) {
-  const normalized = query.trim().toLocaleLowerCase();
+  const normalized = query
+    .split(",", 1)[0]
+    .trim()
+    .toLocaleLowerCase();
+
   if (!normalized) return undefined;
-  return terminals.find((terminal) =>
-    `${terminal.name} ${terminal.nameAm} ${terminal.area} ${terminal.areaAm}`
-      .toLocaleLowerCase()
-      .includes(normalized),
-  );
+
+  const fields = (terminal: (typeof terminals)[number]) => [
+    terminal.name,
+    terminal.nameAm,
+    terminal.area,
+    terminal.areaAm,
+  ].map((value) => value.toLocaleLowerCase());
+
+  return terminals.find((terminal) => fields(terminal).includes(normalized))
+    ?? terminals.find((terminal) => fields(terminal).some((value) => value.includes(normalized)));
 }
 
 router.get("/search", (req, res) => {
@@ -26,16 +35,34 @@ router.get("/search", (req, res) => {
   const toQuery = typeof req.query.to === "string" ? req.query.to : "";
 
   if (!fromQuery.trim() || !toQuery.trim()) {
-    return res.status(400).json({ success: false, message: "Enter both a starting point and a destination." });
+    return res.status(400).json({
+      success: false,
+      messageKey: "enterBoth",
+      message: "Enter both a starting point and a destination.",
+    });
   }
 
   const from = findTerminal(fromQuery);
   const to = findTerminal(toQuery);
+
   if (!from || !to) {
-    return res.json({ success: true, verified: false, data: [], message: "No matching demo terminal. Try Bole, Mexico, or Megenagna." });
+    return res.json({
+      success: true,
+      verified: false,
+      data: [],
+      messageKey: "terminalNotFound",
+      message: "We couldn't match both places. Try Bole, Mexico, or Megenagna.",
+    });
   }
+
   if (from.id === to.id) {
-    return res.json({ success: true, verified: false, data: [], message: "Choose two different places to find a route." });
+    return res.json({
+      success: true,
+      verified: false,
+      data: [],
+      messageKey: "samePlace",
+      message: "Choose two different places to find a route.",
+    });
   }
 
   const connection = demoConnections.find(
@@ -45,15 +72,21 @@ router.get("/search", (req, res) => {
   );
 
   if (!connection) {
-    return res.json({ success: true, verified: false, data: [], message: "No demo connection found for these places." });
+    return res.json({
+      success: true,
+      verified: false,
+      data: [],
+      messageKey: "noConnection",
+      message: "No example connection is listed for these places yet.",
+    });
   }
 
-  const first = terminals.find((item) => item.id === connection.fromId)!;
-  const second = terminals.find((item) => item.id === connection.toId)!;
+  const first = terminals.find((terminal) => terminal.id === connection.fromId)!;
+  const second = terminals.find((terminal) => terminal.id === connection.toId)!;
   const via = "viaId" in connection
-    ? terminals.find((item) => item.id === connection.viaId)
+    ? terminals.find((terminal) => terminal.id === connection.viaId)
     : undefined;
-  const ordered = from.id === first.id
+  const stops = from.id === first.id
     ? [first, ...(via ? [via] : []), second]
     : [second, ...(via ? [via] : []), first];
 
@@ -61,9 +94,11 @@ router.get("/search", (req, res) => {
     success: true,
     verified: false,
     data: [{
-      from: { id: from.id, name: from.name, area: from.area },
-      to: { id: to.id, name: to.name, area: to.area },
-      stops: ordered.map(({ id, name, area }) => ({ id, name, area })),
+      from: { id: from.id, name: from.name, nameAm: from.nameAm, area: from.area, latitude: from.latitude, longitude: from.longitude },
+      to: { id: to.id, name: to.name, nameAm: to.nameAm, area: to.area, latitude: to.latitude, longitude: to.longitude },
+      stops: stops.map(({ id, name, nameAm, area, latitude, longitude }) => ({
+        id, name, nameAm, area, latitude, longitude,
+      })),
       transfers: connection.transfers,
       note: connection.note,
       verified: false,

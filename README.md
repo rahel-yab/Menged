@@ -24,9 +24,6 @@ Live vehicle locations, fares, service times, crowd reports, user accounts, and 
 
 - Node.js 20.19 or newer (Node.js 24 is supported).
 - npm, included with Node.js.
-- An internet connection for installing packages and loading map tiles.
-
-In Windows PowerShell, use `npm.cmd` if the `npm` command is blocked by the PowerShell script execution policy. This project does not require changing that policy.
 
 ## Run locally
 
@@ -40,7 +37,7 @@ npm.cmd ci
 npm.cmd run dev
 ```
 
-The API listens on `http://localhost:3000`. If the TypeScript watcher fails in your environment, build and run the compiled server:
+The API listens on `http://localhost:3000`.
 
 ```powershell
 npm.cmd run build
@@ -63,25 +60,6 @@ Check the API at `http://localhost:3000/api/health`.
 
 The API defaults to port `3000` and allows the Vite development origin `http://localhost:5173`.
 
-For a different API port or frontend origin, set these optional variables in `backend/.env`:
-
-```dotenv
-PORT=3000
-FRONTEND_URL=http://localhost:5173
-```
-
-For a deployed frontend, set `VITE_API_URL` to the API's base URL at frontend build time. Leave it unset for local development with the Vite proxy.
-
-## API reference
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Check that the API is running. |
-| `GET` | `/api/terminals` | List the terminal directory. |
-| `GET` | `/api/terminals/:id` | Read one terminal record. |
-| `GET` | `/api/routes/search?from=Bole&to=Mexico` | Search the current example connections. |
-
-Route search accepts the sample names Bole, Mexico, and Megenagna. Responses identify the results as unverified. Add locally confirmed data before expanding these results.
 
 ## Project layout
 

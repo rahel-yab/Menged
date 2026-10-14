@@ -1,9 +1,7 @@
 import type { Terminal } from "../types/terminal.js";
 
-// Illustrative demo records only.
-// These coordinates, routes, and estimates must be verified
-// before being presented as real transport information.
-
+// Starter records for the prototype. Names and map pins need confirmation
+// from local operators before being used as official transport information.
 export const terminals: Terminal[] = [
   {
     id: 1,
@@ -13,10 +11,10 @@ export const terminals: Terminal[] = [
     areaAm: "ቦሌ",
     latitude: 8.9958,
     longitude: 38.7873,
-    routes: [],
+    routes: ["Example connection to Mexico Square", "Example transfer to Megenagna via Mexico Square"],
     crowdLevel: "unknown",
     estimatedWaitMinutes: null,
-    verified: false
+    verified: false,
   },
   {
     id: 2,
@@ -26,10 +24,10 @@ export const terminals: Terminal[] = [
     areaAm: "ሜክሲኮ",
     latitude: 9.0107,
     longitude: 38.7525,
-    routes: [],
+    routes: ["Example connection to Bole Medhanialem", "Example connection to Megenagna"],
     crowdLevel: "unknown",
     estimatedWaitMinutes: null,
-    verified: false
+    verified: false,
   },
   {
     id: 3,
@@ -39,9 +37,9 @@ export const terminals: Terminal[] = [
     areaAm: "መገናኛ",
     latitude: 9.0204,
     longitude: 38.8075,
-    routes: [],
+    routes: ["Example connection to Mexico Square", "Example transfer to Bole via Mexico Square"],
     crowdLevel: "unknown",
     estimatedWaitMinutes: null,
-    verified: false
-  }
+    verified: false,
+  },
 ];

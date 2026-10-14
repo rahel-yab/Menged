@@ -1,6 +1,6 @@
-
-import { useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
 import {
+  AlertCircle,
   ArrowLeftRight,
   ArrowRight,
   BusFront,
@@ -9,10 +9,9 @@ import {
   Navigation,
   Search,
   ShieldCheck,
-  Users,
 } from "lucide-react";
 
-import TerminalMap from "./components/map/TerminalMap";
+import { getTerminals, searchRoutes, type RouteResult, type Terminal } from "./api";
 import LanguageSwitcher from "./components/LanguageSwitcher";
 import {
   translate,
@@ -22,584 +21,322 @@ import {
 
 import "./App.css";
 
-type Terminal = {
-  id: number;
-  name: string;
-  area: string;
-  routes: number;
-  crowd: "Low" | "Moderate" | "Busy";
-  wait: string;
-};
-
-type RouteResult = {
-  from: { name: string; area: string };
-  to: { name: string; area: string };
-  stops: { name: string; area: string }[];
-  transfers: number;
-  note: string;
-  verified: boolean;
-};
-
-const terminals: Terminal[] = [
-  {
-    id: 1,
-    name: "Bole Medhanialem",
-    area: "Bole, Addis Ababa",
-    routes: 8,
-    crowd: "Low",
-    wait: "5–10 min",
-  },
-  {
-    id: 2,
-    name: "Mexico Square",
-    area: "Kirkos, Addis Ababa",
-    routes: 12,
-    crowd: "Moderate",
-    wait: "10–15 min",
-  },
-  {
-    id: 3,
-    name: "Megenagna",
-    area: "Yeka, Addis Ababa",
-    routes: 15,
-    crowd: "Busy",
-    wait: "15–25 min",
-  },
-];
-
-const crowdTranslation = {
-  Low: "low",
-  Moderate: "moderate",
-  Busy: "busy",
-} as const;
-
-const crowdClass = {
-  Low: "crowd-green",
-  Moderate: "crowd-amber",
-  Busy: "crowd-red",
-} as const;
+const TerminalMap = lazy(() => import("./components/map/TerminalMap"));
 
 function App() {
   const [language, setLanguage] = useState<Language>("en");
+  const [terminals, setTerminals] = useState<Terminal[]>([]);
+  const [terminalsLoading, setTerminalsLoading] = useState(true);
+  const [terminalsError, setTerminalsError] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [selectedTerminal, setSelectedTerminal] = useState<number | null>(
-    null
-  );
-  const [routeResults, setRouteResults] = useState<RouteResult[]>([]);
-  const [routeMessage, setRouteMessage] = useState("");
+  const [route, setRoute] = useState<RouteResult | null>(null);
+  const [routeMessage, setRouteMessage] = useState<TranslationKey | null>(null);
   const [searching, setSearching] = useState(false);
 
   const t = (key: TranslationKey) => translate(language, key);
 
-  const isAmharic = language === "am";
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
-  function handleSwap() {
+  useEffect(() => {
+    let active = true;
+    getTerminals()
+      .then((items) => {
+        if (active) setTerminals(items);
+      })
+      .catch(() => {
+        if (active) setTerminalsError(true);
+      })
+      .finally(() => {
+        if (active) setTerminalsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function swapPlaces() {
     setFrom(to);
     setTo(from);
+    setRoute(null);
+    setRouteMessage(null);
   }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setRoute(null);
+    setRouteMessage(null);
 
     if (!from.trim() || !to.trim()) {
-      setRouteResults([]);
-      setRouteMessage(t("enterBoth"));
+      setRouteMessage("enterBoth");
       return;
     }
 
     setSearching(true);
-    setRouteResults([]);
-    setRouteMessage("");
     try {
-      const params = new URLSearchParams({ from, to });
-      const response = await fetch(`http://localhost:3000/api/routes/search?${params}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || "Route search failed.");
-      setRouteResults(result.data ?? []);
-      setRouteMessage(result.message ?? "");
-    } catch {
-      setRouteMessage("Could not reach Menged's API. Start the backend and try again.");
+      const response = await searchRoutes(from, to);
+      setRoute(response.data[0] ?? null);
+      if (response.messageKey) {
+        setRouteMessage(response.messageKey as TranslationKey);
+      } else if (response.message && response.data.length === 0) {
+        setRouteMessage("noConnection");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "apiRequestFailed";
+      setRouteMessage(
+        message === "apiUnavailable" ? "apiUnavailable" : "apiRequestFailed",
+      );
     } finally {
       setSearching(false);
     }
   }
 
+  function chooseTerminal(terminal: Terminal, field: "from" | "to") {
+    const name = language === "am" ? terminal.nameAm : terminal.name;
+    if (field === "from") setFrom(name);
+    else setTo(name);
+    setRoute(null);
+    setRouteMessage(null);
+    document.getElementById("route-finder")?.scrollIntoView({ behavior: "smooth" });
+    document.getElementById(field === "from" ? "starting-point" : "destination")?.focus({ preventScroll: true });
+  }
+
+  const mapLabels = {
+    mapTitle: t("mapTitle"),
+    mapHint: t("mapHint"),
+    verified: t("verified"),
+    unverified: t("unverified"),
+  };
+
   return (
-    <div
-      lang={language}
-      className={`min-h-screen bg-[#F8FAF7] text-[#17251D] ${
-        isAmharic ? "menged-am" : "menged-en"
-      }`}
-    >
-      {/* ================= NAVIGATION ================= */}
-      <header className="sticky top-0 z-50 border-b border-[#E8EDE8] bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-[76px] max-w-[1440px] items-center justify-between gap-5 px-8 lg:px-12">
-          {/* Logo */}
-          <a href="#home" className="flex shrink-0 items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#176B45] text-white">
-              <Navigation size={23} strokeWidth={2.4} />
-            </div>
-
-            <div>
-              <div className="text-[23px] font-extrabold leading-none tracking-tight">
-                {t("brand")}
-                {language === "en" && (
-                  <span className="text-[#26965F]">.</span>
-                )}
-              </div>
-
-              <div className="mt-1 text-[10px] font-medium tracking-[0.1em] text-gray-500">
-                {t("tagline")}
-              </div>
-            </div>
+    <div lang={language} className={`menged-app ${language === "am" ? "menged-am" : "menged-en"}`}>
+      <header className="site-header">
+        <div className="site-header-inner">
+          <a href="#home" className="brand" aria-label={t("brand")}>
+            <span className="brand-mark"><Navigation size={21} strokeWidth={2.4} /></span>
+            <span className="brand-copy">
+              <strong>{t("brand")}</strong>
+              <small>{t("tagline")}</small>
+            </span>
           </a>
 
-          {/* Desktop navigation */}
-          <nav className="flex items-center gap-6 text-sm font-medium text-gray-600 lg:gap-9">
-            <a
-              href="#explore"
-              className="whitespace-nowrap transition hover:text-[#176B45]"
-            >
-              {t("navExplore")}
-            </a>
-
-            <a
-              href="#how-it-works"
-              className="whitespace-nowrap transition hover:text-[#176B45]"
-            >
-              {t("navHow")}
-            </a>
-
-            <a
-              href="#about"
-              className="whitespace-nowrap transition hover:text-[#176B45]"
-            >
-              {t("navAbout")}
-            </a>
+          <nav className="main-nav" aria-label={t("navLabel")}>
+            <a href="#explore">{t("navExplore")}</a>
+            <a href="#how-it-works">{t("navHow")}</a>
+            <a href="#about">{t("navAbout")}</a>
           </nav>
 
-          {/* Language and account actions */}
-          <div className="flex shrink-0 items-center gap-3">
-            <LanguageSwitcher
-              language={language}
-              onChange={setLanguage}
-            />
-
-            <button
-              type="button"
-              onClick={() => window.alert(t("signInComingSoon"))}
-              className="whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold text-[#176B45] transition hover:bg-[#F0F7F2]"
-            >
-              {t("signIn")}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => window.alert(t("registerComingSoon"))}
-              className="whitespace-nowrap rounded-xl bg-[#176B45] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#125737]"
-            >
-              {t("getStarted")}
-            </button>
-          </div>
+          <LanguageSwitcher
+            language={language}
+            onChange={setLanguage}
+            label={t("languageLabel")}
+          />
         </div>
       </header>
 
       <main>
-        {/* ================= HERO ================= */}
-        <section id="home" className="relative overflow-hidden">
-          <div className="pointer-events-none absolute -right-40 -top-32 h-[500px] w-[500px] rounded-full bg-[#E6F3E9] opacity-70 blur-3xl" />
+        <section id="home" className="hero-section">
+          <div className="hero-inner">
+            <div className="hero-copy">
+              <div className="eyebrow"><span />{t("heroBadge")}</div>
+              <h1>{t("heroTitle")}<br /><span>{t("heroHighlight")}</span></h1>
+              <p className="hero-description">{t("heroDescription")}</p>
 
-          <div className="relative mx-auto grid max-w-[1440px] items-center gap-12 px-8 pb-20 pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:px-12 lg:pb-24 lg:pt-24">
-            {/* Hero content */}
-            <div className="max-w-[650px]">
-              <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[#D8EBDD] bg-white px-3.5 py-2 text-xs font-semibold text-[#176B45] shadow-sm">
-                <span className="h-2 w-2 rounded-full bg-[#26965F]" />
-                {t("heroBadge")}
-              </div>
-
-              <h1 className="text-[48px] font-extrabold leading-[1.2] tracking-[-0.035em] text-[#17251D] lg:text-[66px]">
-                {t("heroTitle")}
-                <br />
-                <span className="text-[#26965F]">
-                  {t("heroHighlight")}
-                </span>
-              </h1>
-
-              <p className="mt-6 max-w-[540px] text-base leading-8 text-gray-600 lg:text-lg">
-                {t("heroDescription")}
-              </p>
-
-              {/* Route search */}
-              <form
-                onSubmit={handleSearch}
-                className="mt-9 rounded-[22px] border border-[#E6EAE6] bg-white p-5 shadow-[0_14px_50px_rgba(27,60,39,0.08)]"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <label
-                    htmlFor="starting-point"
-                    className="text-sm font-bold text-[#17251D]"
-                  >
-                    {t("routeFinder")}
-                  </label>
-
-                  <span className="rounded-full bg-[#F0F7F2] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#176B45]">
-                    {t("findRoute")}
-                  </span>
+              <form id="route-finder" className="route-card" onSubmit={handleSearch}>
+                <div className="route-card-heading">
+                  <h2>{t("routeFinder")}</h2>
+                  <span><Search size={13} /> {t("findRoute")}</span>
                 </div>
 
-                <div className="flex items-stretch gap-3">
-                  <div className="flex min-w-0 flex-1 flex-col gap-3">
-                    {/* Starting point */}
-                    <label className="flex min-w-0 items-center gap-3 rounded-xl border border-[#E6EAE6] bg-[#FAFBF9] px-3.5 py-3.5 transition focus-within:border-[#26965F]">
-                      <span className="h-3 w-3 shrink-0 rounded-full border-[3px] border-[#26965F]" />
-
+                <div className="route-fields">
+                  <div className="route-inputs">
+                    <label className="route-input">
+                      <span className="origin-dot" aria-hidden="true" />
                       <input
                         id="starting-point"
-                        type="text"
+                        list="terminal-suggestions"
                         value={from}
                         onChange={(event) => setFrom(event.target.value)}
                         placeholder={t("startingPoint")}
                         aria-label={t("startingPoint")}
                         autoComplete="off"
-                        className="w-full min-w-0 bg-transparent text-sm font-medium outline-none placeholder:font-normal placeholder:text-gray-400"
+                        required
                       />
                     </label>
-
-                    {/* Destination */}
-                    <label className="flex min-w-0 items-center gap-3 rounded-xl border border-[#E6EAE6] bg-[#FAFBF9] px-3.5 py-3.5 transition focus-within:border-[#26965F]">
-                      <MapPin
-                        size={16}
-                        className="shrink-0 text-[#DC5656]"
-                      />
-
+                    <label className="route-input">
+                      <MapPin size={17} className="destination-icon" aria-hidden="true" />
                       <input
-                        type="text"
+                        id="destination"
+                        list="terminal-suggestions"
                         value={to}
                         onChange={(event) => setTo(event.target.value)}
                         placeholder={t("destination")}
                         aria-label={t("destination")}
                         autoComplete="off"
-                        className="w-full min-w-0 bg-transparent text-sm font-medium outline-none placeholder:font-normal placeholder:text-gray-400"
+                        required
                       />
                     </label>
+                    <datalist id="terminal-suggestions">
+                      {terminals.map((terminal) => (
+                        <option key={terminal.id} value={language === "am" ? terminal.nameAm : terminal.name} />
+                      ))}
+                    </datalist>
                   </div>
 
-                  {/* Swap locations */}
                   <button
                     type="button"
-                    onClick={handleSwap}
-                    aria-label="Swap starting point and destination"
-                    className="my-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#E6EAE6] bg-white text-gray-500 transition hover:border-[#26965F] hover:text-[#176B45]"
+                    className="swap-button"
+                    onClick={swapPlaces}
+                    aria-label={t("swapPlaces")}
+                    title={t("swapPlaces")}
                   >
                     <ArrowLeftRight size={17} />
                   </button>
                 </div>
 
-                <button
-                  type="submit"
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#176B45] px-5 py-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#125737] active:scale-[0.99]"
-                >
-                  <Search size={18} />
-                  {searching ? "Searching…" : t("findRoute")}
+                <p className="place-examples">{t("placeExamples")}</p>
+                <button className="search-button" type="submit" disabled={searching}>
+                  <Search size={17} />
+                  {searching ? t("searching") : t("findRoute")}
                   <ArrowRight size={17} />
                 </button>
 
-                <p className="mt-3 text-center text-[11px] leading-5 text-gray-400">
-                  {t("routeHint")}
-                </p>
+                <p className="route-disclaimer">{t("routeHint")}</p>
+
+                {(routeMessage || route) && (
+                  <div className={`route-result ${route ? "route-result-success" : "route-result-message"}`} aria-live="polite">
+                    {route ? (
+                      <>
+                        <div className="result-heading">
+                          <div className="result-icon"><BusFront size={17} /></div>
+                          <div>
+                            <strong>{t("routeOptions")}</strong>
+                            <span>{route.transfers === 0 ? t("direct") : `${route.transfers} ${t("transfers")}`}</span>
+                          </div>
+                        </div>
+                        <ol className="route-stop-list">
+                          {route.stops.map((stop, index) => (
+                            <li key={stop.id}>
+                              <span className={`stop-marker ${index === 0 ? "stop-origin" : index === route.stops.length - 1 ? "stop-destination" : "stop-transfer"}`} />
+                              <span>{language === "am" ? stop.nameAm : stop.name}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="route-warning"><AlertCircle size={15} />{t("unverifiedRoute")}</p>
+                      </>
+                    ) : (
+                      <p className="route-message"><AlertCircle size={16} />{routeMessage ? t(routeMessage) : ""}</p>
+                    )}
+                  </div>
+                )}
               </form>
 
-              {(routeMessage || routeResults.length > 0) && (
-                <section aria-live="polite" className="mt-4 rounded-2xl border border-[#DCE9DE] bg-white p-5 shadow-sm">
-                  <h2 className="font-bold text-[#17251D]">Route options</h2>
-                  {routeMessage && <p className="mt-2 text-sm text-gray-600">{routeMessage}</p>}
-                  {routeResults.map((route, index) => (
-                    <article key={`${route.from.name}-${route.to.name}-${index}`} className="mt-3 rounded-xl bg-[#F5F8F4] p-4">
-                      <p className="font-semibold">{route.from.name} <ArrowRight size={14} className="mx-1 inline" /> {route.to.name}</p>
-                      <p className="mt-2 text-sm text-gray-600">{route.stops.map((stop) => stop.name).join(" → ")}</p>
-                      <p className="mt-2 text-xs text-gray-500">{route.transfers} transfers · {route.note}</p>
-                      {!route.verified && <p className="mt-2 text-xs font-semibold text-[#9A6715]">Demo route only — confirm the route and fare locally.</p>}
-                    </article>
-                  ))}
-                </section>
-              )}
-
-              {/* Trust indicators */}
-              <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs font-medium text-gray-500">
-                <span className="flex items-center gap-2">
-                  <ShieldCheck size={15} className="text-[#26965F]" />
-                  {t("localInfo")}
-                </span>
-
-                <span className="flex items-center gap-2">
-                  <MapPin size={15} className="text-[#26965F]" />
-                  {t("terminalDiscovery")}
-                </span>
+              <div className="trust-row">
+                <span><ShieldCheck size={16} />{t("localInfo")}</span>
+                <span><MapPin size={16} />{t("terminalDiscovery")}</span>
               </div>
             </div>
 
-            {/* ================= INTERACTIVE MAP ================= */}
-            <div className="relative mx-auto w-full max-w-[650px] lg:ml-auto">
-              {/* Floating map label */}
-              <div className="absolute -left-5 top-10 z-10 hidden rounded-2xl border border-[#E8EDE8] bg-white p-4 shadow-xl sm:block">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#E8F5EC] text-[#176B45]">
-                    <BusFront size={18} />
-                  </span>
-
-                  <div>
-                    <div className="text-xs font-bold">
-                      {t("taxiTerminals")}
-                    </div>
-
-                    <div className="mt-1 text-[10px] text-gray-500">
-                      {t("nearbyStops")}
-                    </div>
-                  </div>
-                </div>
+            <div className="hero-map-wrap">
+              <div className="map-label">
+                <span className="map-label-icon"><BusFront size={18} /></span>
+                <span><strong>{t("taxiTerminals")}</strong><small>{t("nearbyStops")}</small></span>
               </div>
-
-              <TerminalMap />
-
-              {/* Floating crowd information */}
-              <div className="absolute -bottom-5 -left-2 z-10 rounded-2xl border border-[#E8EDE8] bg-white p-4 shadow-xl sm:-left-8">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FFF4DF] text-[#B77B16]">
-                    <Users size={19} />
-                  </div>
-
-                  <div>
-                    <div className="text-xs font-bold text-[#17251D]">
-                      {t("crowdAware")}
-                    </div>
-
-                    <div className="mt-1 text-[10px] text-gray-500">
-                      {t("knowBefore")}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {terminalsError ? (
+                <div className="map-unavailable"><AlertCircle size={22} />{t("terminalsUnavailable")}</div>
+              ) : (
+                <Suspense fallback={<div className="map-unavailable" role="status">{t("mapLoading")}</div>}>
+                  <TerminalMap terminals={terminals} language={language} labels={mapLabels} />
+                </Suspense>
+              )}
             </div>
           </div>
         </section>
 
-        {/* ================= TERMINALS ================= */}
-        <section id="explore" className="bg-white py-20">
-          <div className="mx-auto max-w-[1440px] px-8 lg:px-12">
-            <div className="flex items-end justify-between gap-5">
+        <section id="explore" className="terminals-section">
+          <div className="section-inner">
+            <div className="section-heading">
               <div>
-                <div className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#26965F]">
-                  {t("exploreCity")}
-                </div>
-
-                <h2 className="text-3xl font-extrabold tracking-tight lg:text-4xl">
-                  {t("findTerminal")}
-                </h2>
-
-                <p className="mt-3 max-w-xl text-sm leading-7 text-gray-500">
-                  {t("terminalDescription")}
-                </p>
+                <div className="section-kicker">{t("exploreCity")}</div>
+                <h2>{t("findTerminal")}</h2>
+                <p>{t("terminalDescription")}</p>
               </div>
-
-              <a
-                href="#explore"
-                className="inline-flex shrink-0 items-center gap-2 text-sm font-bold text-[#176B45] transition hover:text-[#26965F]"
-              >
-                {t("viewAll")}
-                <ArrowRight size={16} />
-              </a>
+              <a className="text-link" href="#route-finder">{t("findRoute")} <ArrowRight size={16} /></a>
             </div>
 
-            {/* Terminal cards */}
-            <div className="mt-9 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {terminals.map((terminal) => (
-                <article
-                  key={terminal.id}
-                  className="rounded-2xl border border-[#E9EDE9] bg-white p-5 transition hover:-translate-y-1 hover:border-[#B8D9C1] hover:shadow-lg"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EFF7F0] text-[#176B45]">
-                      <BusFront size={23} />
+            {terminalsLoading ? (
+              <p className="directory-state" role="status">{t("loadingTerminals")}</p>
+            ) : terminalsError ? (
+              <p className="directory-state directory-error" role="alert">{t("terminalsUnavailable")}</p>
+            ) : terminals.length === 0 ? (
+              <p className="directory-state">{t("noTerminals")}</p>
+            ) : (
+              <div className="terminal-grid">
+                {terminals.map((terminal) => (
+                  <article className="terminal-card" key={terminal.id}>
+                    <div className="terminal-card-top">
+                      <span className="terminal-icon"><BusFront size={21} /></span>
+                      <span className={`data-status ${terminal.verified ? "data-status-verified" : ""}`}>
+                        <span />{terminal.verified ? t("verified") : t("unverified")}
+                      </span>
                     </div>
-
-                    <span
-                      className={`crowd-badge ${crowdClass[terminal.crowd]}`}
-                    >
-                      <span className="h-2 w-2 rounded-full bg-current" />
-                      {t(crowdTranslation[terminal.crowd])}
-                    </span>
-                  </div>
-
-                  <h3 className="mt-5 text-lg font-bold text-[#17251D]">
-                    {terminal.name}
-                  </h3>
-
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
-                    <MapPin size={14} />
-                    {terminal.area}
-                  </div>
-
-                  <div className="my-5 h-px bg-[#EDF0ED]" />
-
-                  <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <BusFront size={15} />
-                      {terminal.routes} {t("routes")}
-                    </span>
-
-                    <span className="flex items-center gap-1.5">
-                      <Clock3 size={15} />
-                      {terminal.wait}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedTerminal((current) =>
-                        current === terminal.id ? null : terminal.id
-                      )
-                    }
-                    aria-expanded={selectedTerminal === terminal.id}
-                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#DCE9DE] py-3 text-sm font-bold text-[#176B45] transition hover:bg-[#F0F7F2]"
-                  >
-                    {selectedTerminal === terminal.id
-                      ? t("hideDetails")
-                      : t("exploreTerminal")}
-                    <ArrowRight size={15} />
-                  </button>
-
-                  {selectedTerminal === terminal.id && (
-                    <div className="mt-3 rounded-xl bg-[#F5F8F4] p-3 text-xs leading-6 text-gray-600">
-                      {t("sampleData")}
+                    <h3>{language === "am" ? terminal.nameAm : terminal.name}</h3>
+                    <p className="terminal-area"><MapPin size={14} />{language === "am" ? terminal.areaAm : terminal.area}</p>
+                    <div className="terminal-details">
+                      <div><BusFront size={15} /><span>{t("connectionData")}</span><strong>{terminal.routes.length ? `${terminal.routes.length} ${t("sampleConnections")}` : t("noConnections")}</strong></div>
+                      <div><ShieldCheck size={15} /><span>{t("crowdData")}</span><strong>{terminal.crowdLevel === "unknown" ? t("noCrowdData") : terminal.crowdLevel}</strong></div>
+                      <div><Clock3 size={15} /><span>{t("waitData")}</span><strong>{terminal.estimatedWaitMinutes === null ? t("noWaitData") : `${terminal.estimatedWaitMinutes} min`}</strong></div>
                     </div>
-                  )}
+                    <div className="terminal-actions">
+                      <button type="button" onClick={() => chooseTerminal(terminal, "from")}>{t("useAsStart")}</button>
+                      <button type="button" onClick={() => chooseTerminal(terminal, "to")}>{t("useAsDestination")}</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            <p className="sample-notice">{t("sampleNotice")}</p>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="how-section">
+          <div className="section-inner">
+            <div className="center-heading">
+              <div className="section-kicker">{t("howLabel")}</div>
+              <h2>{t("howTitle")}</h2>
+            </div>
+            <div className="steps-grid">
+              {([
+                ["01", "step1Title", "step1Description", <Search size={21} key="search" />],
+                ["02", "step2Title", "step2Description", <Navigation size={21} key="navigation" />],
+                ["03", "step3Title", "step3Description", <BusFront size={21} key="bus" />],
+              ] as const).map(([number, title, description, icon]) => (
+                <article className="step-card" key={number}>
+                  <div className="step-card-top"><span>{icon}</span><strong>{number}</strong></div>
+                  <h3>{t(title)}</h3>
+                  <p>{t(description)}</p>
                 </article>
               ))}
             </div>
-
-            <p className="mt-5 text-xs leading-6 text-gray-400">
-              {t("sampleNotice")}
-            </p>
           </div>
         </section>
 
-        {/* ================= HOW IT WORKS ================= */}
-        <section id="how-it-works" className="py-20">
-          <div className="mx-auto max-w-[1440px] px-8 lg:px-12">
-            <div className="mx-auto max-w-2xl text-center">
-              <div className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#26965F]">
-                {t("howLabel")}
-              </div>
-
-              <h2 className="text-3xl font-extrabold tracking-tight lg:text-4xl">
-                {t("howTitle")}
-              </h2>
-
-              <p className="mt-4 text-sm leading-7 text-gray-500">
-                {t("howDescription")}
-              </p>
-            </div>
-
-            <div className="mt-12 grid grid-cols-1 gap-8 md:grid-cols-3">
-              {[
-                {
-                  number: "01",
-                  title: "step1Title",
-                  description: "step1Description",
-                  icon: <Search size={23} />,
-                },
-                {
-                  number: "02",
-                  title: "step2Title",
-                  description: "step2Description",
-                  icon: <Navigation size={23} />,
-                },
-                {
-                  number: "03",
-                  title: "step3Title",
-                  description: "step3Description",
-                  icon: <BusFront size={23} />,
-                },
-              ].map((step) => (
-                <div
-                  key={step.number}
-                  className="rounded-2xl border border-[#E8EDE8] bg-white p-7"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EAF5EC] text-[#176B45]">
-                      {step.icon}
-                    </div>
-
-                    <span className="text-3xl font-extrabold text-[#E1EAE2]">
-                      {step.number}
-                    </span>
-                  </div>
-
-                  <h3 className="mt-6 text-lg font-bold">
-                    {t(step.title as TranslationKey)}
-                  </h3>
-
-                  <p className="mt-3 text-sm leading-7 text-gray-500">
-                    {t(step.description as TranslationKey)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ================= ABOUT ================= */}
-        <section
-          id="about"
-          className="px-8 pb-20 lg:px-12"
-        >
-          <div className="mx-auto max-w-[1440px] overflow-hidden rounded-[28px] bg-[#176B45] px-12 py-16 text-white">
-            <div className="max-w-2xl">
-              <div className="text-xs font-bold uppercase tracking-[0.2em] text-[#B9E4C6]">
-                {t("aboutLabel")}
-              </div>
-
-              <h2 className="mt-4 text-3xl font-extrabold tracking-tight lg:text-4xl">
-                {t("aboutTitle")}
-              </h2>
-
-              <p className="mt-5 max-w-xl text-sm leading-8 text-white/80">
-                {t("aboutDescription")}
-              </p>
-
-              <a
-                href="#explore"
-                className="about-cta mt-8 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-bold text-[#176B45] transition hover:bg-[#EAF5EC]"
-              >
-                {t("exploreButton")}
-                <ArrowRight size={17} />
-              </a>
-            </div>
+        <section id="about" className="about-section">
+          <div className="about-card">
+            <div className="section-kicker">{t("aboutLabel")}</div>
+            <h2>{t("aboutTitle")}</h2>
+            <p>{t("aboutDescription")}</p>
+            <a href="#explore" className="about-link">{t("navExplore")} <ArrowRight size={16} /></a>
           </div>
         </section>
       </main>
 
-      {/* ================= FOOTER ================= */}
-      <footer className="border-t border-[#E8EDE8] bg-white">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-5 px-8 py-8 lg:px-12">
-          <div className="flex items-center gap-2">
-            <Navigation size={18} className="text-[#176B45]" />
-
-            <span className="font-extrabold tracking-tight">
-              {t("brand")}
-            </span>
-
-            <span className="ml-2 text-xs text-gray-400">
-              መንገድ
-            </span>
-          </div>
-
-          <p className="text-xs text-gray-400">
-            {t("footerTagline")}
-          </p>
-        </div>
+      <footer className="site-footer">
+        <a href="#home" className="footer-brand"><Navigation size={17} />{t("brand")}</a>
+        <span>{t("footerTagline")}</span>
       </footer>
     </div>
   );

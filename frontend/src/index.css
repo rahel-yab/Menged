@@ -1,8 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "DM Sans", "Noto Sans Ethiopic", "Nyala", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: #17251d;
   background: #f8faf7;
   font-synthesis: none;
@@ -35,6 +34,13 @@ button {
   cursor: pointer;
 }
 
+button, a { -webkit-tap-highlight-color: transparent; }
+
+:focus-visible {
+  outline: 3px solid #91cfa0;
+  outline-offset: 3px;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -43,3 +49,5 @@ a {
 #root {
   min-height: 100vh;
 }
+
+::selection { color: #14532d; background: #cce9d3; }

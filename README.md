@@ -1,18 +1,18 @@
 # Menged
 
-Menged is a bilingual English and Amharic prototype for discovering taxi terminals and exploring local connections in Ethiopia. The current directory focuses on three Addis Ababa locations and provides a starting point for collecting verified transport information.
+Menged is a bilingual English and Amharic route finder for Addis Ababa's mapped minibus network.
 
-> **Prototype data:** Terminal details and map pins are starter records. Route connections are illustrative examples. They have not been verified with taxi operators and must not be treated as current travel, fare, schedule, or safety advice.
+> **Data limits:** Route suggestions use a static AddisMapTransit GTFS snapshot. They are not live taxi locations or seat availability, and routes, service frequency, and stop names can change. Confirm the boarding point with a driver before travelling. Fares are not included.
 
 ## What the project includes
 
 - A responsive React interface with English and Amharic content.
-- A terminal directory backed by the API, with approximate map pins.
-- Route search between the sample stations, including example transfers.
+- A directory of 953 mapped minibus stops with map pins.
+- Route search for direct trips and one-transfer journeys, with selectable alternatives, stop-by-stop details, and mapped line geometry.
 - An Express API for health checks, station records, and route search.
 - OpenStreetMap tiles for the terminal map.
 
-Live vehicle locations, fares, service times, crowd reports, user accounts, and a verified nationwide route dataset are not implemented.
+Live vehicle locations, seat availability, fares, user accounts, and routes outside the Addis Ababa feed are not implemented. The feed includes frequency values, but they are only displayed as source data and are not live arrival predictions.
 
 ## Technology
 
@@ -60,12 +60,16 @@ Check the API at `http://localhost:3000/api/health`.
 
 The API defaults to port `3000` and allows the Vite development origin `http://localhost:5173`.
 
+## Route data
+
+The minibus GTFS snapshot is stored in `backend/data/gtfs` and attributed to OpenStreetMap contributors and AddisMapTransit under ODbL. See that directory's README for source details and limitations. Route suggestions are calculated from the feed's stop sequences; the app does not report which taxis are currently at a stop.
+
 
 ## Project layout
 
 ```text
 backend/
-  src/data/       Starter terminal records
+  src/data/       GTFS-backed stop and route data loader
   src/routes/     Health, terminal, and route endpoints
   src/types/      API data types
 frontend/

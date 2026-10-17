@@ -13,6 +13,7 @@ import {
 
 import { getTerminals, searchRoutes, type RouteResult, type Terminal } from "./api";
 import LanguageSwitcher from "./components/LanguageSwitcher";
+import MinibusMark from "./components/MinibusMark";
 import {
   translate,
   type Language,
@@ -26,13 +27,15 @@ const TerminalMap = lazy(() => import("./components/map/TerminalMap"));
 function App() {
   const [language, setLanguage] = useState<Language>("en");
   const [terminals, setTerminals] = useState<Terminal[]>([]);
+  const [terminalFilter, setTerminalFilter] = useState("");
   const [terminalsLoading, setTerminalsLoading] = useState(true);
   const [terminalsError, setTerminalsError] = useState(false);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [route, setRoute] = useState<RouteResult | null>(null);
+  const [routes, setRoutes] = useState<RouteResult[]>([]);
   const [routeMessage, setRouteMessage] = useState<TranslationKey | null>(null);
   const [searching, setSearching] = useState(false);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
 
   const t = (key: TranslationKey) => translate(language, key);
 
@@ -61,13 +64,15 @@ function App() {
   function swapPlaces() {
     setFrom(to);
     setTo(from);
-    setRoute(null);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     setRouteMessage(null);
   }
 
   async function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setRoute(null);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     setRouteMessage(null);
 
     if (!from.trim() || !to.trim()) {
@@ -78,7 +83,8 @@ function App() {
     setSearching(true);
     try {
       const response = await searchRoutes(from, to);
-      setRoute(response.data[0] ?? null);
+      setRoutes(response.data);
+      setSelectedRouteIndex(0);
       if (response.messageKey) {
         setRouteMessage(response.messageKey as TranslationKey);
       } else if (response.message && response.data.length === 0) {
@@ -98,25 +104,54 @@ function App() {
     const name = language === "am" ? terminal.nameAm : terminal.name;
     if (field === "from") setFrom(name);
     else setTo(name);
-    setRoute(null);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
     setRouteMessage(null);
     document.getElementById("route-finder")?.scrollIntoView({ behavior: "smooth" });
     document.getElementById(field === "from" ? "starting-point" : "destination")?.focus({ preventScroll: true });
   }
 
+  function chooseMapStop(terminal: Terminal, field: "from" | "to") {
+    const name = language === "am" ? terminal.nameAm : terminal.name;
+    if (field === "from") setFrom(name);
+    else setTo(name);
+    setRoutes([]);
+    setSelectedRouteIndex(0);
+    setRouteMessage(null);
+  }
+
+  const selectedRoute = routes[selectedRouteIndex] ?? null;
   const mapLabels = {
     mapTitle: t("mapTitle"),
-    mapHint: t("mapHint"),
+    mapHint: selectedRoute
+      ? `${t("selectedOnMap")}: ${selectedRoute.legs.map((leg) => leg.routeName).join(" → ")}`
+      : t("mapHint"),
+    selectedRoute: t("selectedRoute"),
+    transfer: t("transferPoint"),
+    origin: t("startingPoint"),
+    destination: t("destination"),
+    setAsStart: t("useAsStart"),
+    setAsDestination: t("useAsDestination"),
+    nearestStop: t("nearestStop"),
+    meters: t("meters"),
+    kilometers: t("kilometers"),
     verified: t("verified"),
     unverified: t("unverified"),
   };
+  const matchingTerminals = terminals
+    .filter((terminal) => `${terminal.name} ${terminal.area}`.toLocaleLowerCase().includes(terminalFilter.trim().toLocaleLowerCase()))
+    .sort((left, right) => right.routes.length - left.routes.length || left.name.localeCompare(right.name));
+  const visibleTerminals = matchingTerminals.slice(0, 24);
+  const mapTerminals = [...terminals]
+    .sort((left, right) => right.routes.length - left.routes.length)
+    .slice(0, 100);
 
   return (
     <div lang={language} className={`menged-app ${language === "am" ? "menged-am" : "menged-en"}`}>
       <header className="site-header">
         <div className="site-header-inner">
           <a href="#home" className="brand" aria-label={t("brand")}>
-            <span className="brand-mark"><Navigation size={21} strokeWidth={2.4} /></span>
+            <span className="brand-mark"><MinibusMark size={30} /></span>
             <span className="brand-copy">
               <strong>{t("brand")}</strong>
               <small>{t("tagline")}</small>
@@ -180,7 +215,7 @@ function App() {
                       />
                     </label>
                     <datalist id="terminal-suggestions">
-                      {terminals.map((terminal) => (
+                  {terminals.map((terminal) => (
                         <option key={terminal.id} value={language === "am" ? terminal.nameAm : terminal.name} />
                       ))}
                     </datalist>
@@ -206,26 +241,59 @@ function App() {
 
                 <p className="route-disclaimer">{t("routeHint")}</p>
 
-                {(routeMessage || route) && (
-                  <div className={`route-result ${route ? "route-result-success" : "route-result-message"}`} aria-live="polite">
-                    {route ? (
+                {(routeMessage || routes.length > 0) && (
+                  <div className={`route-result ${routes.length ? "route-result-success" : "route-result-message"}`} aria-live="polite">
+                    {routes.length ? (
                       <>
-                        <div className="result-heading">
-                          <div className="result-icon"><BusFront size={17} /></div>
-                          <div>
-                            <strong>{t("routeOptions")}</strong>
-                            <span>{route.transfers === 0 ? t("direct") : `${route.transfers} ${t("transfers")}`}</span>
-                          </div>
-                        </div>
-                        <ol className="route-stop-list">
-                          {route.stops.map((stop, index) => (
-                            <li key={stop.id}>
-                              <span className={`stop-marker ${index === 0 ? "stop-origin" : index === route.stops.length - 1 ? "stop-destination" : "stop-transfer"}`} />
-                              <span>{language === "am" ? stop.nameAm : stop.name}</span>
-                            </li>
+                        <div className="route-options" aria-label={t("routeOptions")}>
+                          {routes.map((route, routeIndex) => (
+                            <button
+                              type="button"
+                              className={`route-option-card ${selectedRouteIndex === routeIndex ? "route-option-selected" : ""}`}
+                              key={`${route.from.id}-${route.to.id}-${routeIndex}`}
+                              onClick={() => setSelectedRouteIndex(routeIndex)}
+                              aria-pressed={selectedRouteIndex === routeIndex}
+                            >
+                              <span className="route-option-card-top">
+                                <span className="route-option-number">{t("routeOptions")} {routeIndex + 1}</span>
+                                <span className="route-transfer-badge">{route.transfers === 0 ? t("direct") : `${route.transfers} ${t("transfers")}`}</span>
+                              </span>
+                              <span className="route-option-endpoints">
+                                <strong>{language === "am" ? route.from.nameAm : route.from.name}</strong>
+                                <ArrowRight size={15} aria-hidden="true" />
+                                <strong>{language === "am" ? route.to.nameAm : route.to.name}</strong>
+                              </span>
+                              <span className="route-option-lines">
+                                {route.legs.map((leg, legIndex) => <span key={`${leg.routeName}-${legIndex}`}>{leg.routeName}</span>)}
+                              </span>
+                              <span className="route-option-summary">{route.stops.length} {t("stopsLabel")}</span>
+                            </button>
                           ))}
-                        </ol>
-                        <p className="route-warning"><AlertCircle size={15} />{t("unverifiedRoute")}</p>
+                        </div>
+                        {selectedRoute && (
+                          <div className="selected-itinerary">
+                            <strong className="itinerary-title">{t("itineraryDetails")}</strong>
+                            {selectedRoute.legs.map((leg, legIndex) => (
+                              <section className="itinerary-leg" key={`${leg.routeName}-${legIndex}`}>
+                                <div className="itinerary-leg-heading">
+                                  <span>{legIndex + 1}</span>
+                                  <strong>{t("lineLabel")} {leg.routeName}</strong>
+                                </div>
+                                <p>{leg.routeLongName}</p>
+                                <ol className="route-stop-list">
+                                  {leg.stops.map((stop, index) => (
+                                    <li key={`${stop.id}-${index}`}>
+                                      <span className={`stop-marker ${index === 0 && legIndex === 0 ? "stop-origin" : index === leg.stops.length - 1 && legIndex === selectedRoute.legs.length - 1 ? "stop-destination" : "stop-transfer"}`} />
+                                      <span>{language === "am" ? stop.nameAm : stop.name}</span>
+                                      {index === leg.stops.length - 1 && legIndex < selectedRoute.legs.length - 1 && <small>{t("transferToNext")}</small>}
+                                    </li>
+                                  ))}
+                                </ol>
+                              </section>
+                            ))}
+                          </div>
+                        )}
+                        <p className="route-warning"><AlertCircle size={15} />{t("noLiveTaxis")}</p>
                       </>
                     ) : (
                       <p className="route-message"><AlertCircle size={16} />{routeMessage ? t(routeMessage) : ""}</p>
@@ -249,7 +317,7 @@ function App() {
                 <div className="map-unavailable"><AlertCircle size={22} />{t("terminalsUnavailable")}</div>
               ) : (
                 <Suspense fallback={<div className="map-unavailable" role="status">{t("mapLoading")}</div>}>
-                  <TerminalMap terminals={terminals} language={language} labels={mapLabels} />
+                  <TerminalMap terminals={mapTerminals} allStops={terminals} language={language} labels={mapLabels} selectedRoute={selectedRoute} onChooseStop={chooseMapStop} />
                 </Suspense>
               )}
             </div>
@@ -274,8 +342,13 @@ function App() {
             ) : terminals.length === 0 ? (
               <p className="directory-state">{t("noTerminals")}</p>
             ) : (
+              <>
+              <label className="directory-search">
+                <Search size={16} />
+                <input value={terminalFilter} onChange={(event) => setTerminalFilter(event.target.value)} placeholder={t("terminalSearch")} aria-label={t("terminalSearch")} />
+              </label>
               <div className="terminal-grid">
-                {terminals.map((terminal) => (
+                {visibleTerminals.map((terminal) => (
                   <article className="terminal-card" key={terminal.id}>
                     <div className="terminal-card-top">
                       <span className="terminal-icon"><BusFront size={21} /></span>
@@ -286,7 +359,7 @@ function App() {
                     <h3>{language === "am" ? terminal.nameAm : terminal.name}</h3>
                     <p className="terminal-area"><MapPin size={14} />{language === "am" ? terminal.areaAm : terminal.area}</p>
                     <div className="terminal-details">
-                      <div><BusFront size={15} /><span>{t("connectionData")}</span><strong>{terminal.routes.length ? `${terminal.routes.length} ${t("sampleConnections")}` : t("noConnections")}</strong></div>
+                      <div><BusFront size={15} /><span>{t("connectionData")}</span><strong>{terminal.routes.length ? `${terminal.routes.length} ${t("routeCount")}` : t("noConnections")}</strong></div>
                       <div><ShieldCheck size={15} /><span>{t("crowdData")}</span><strong>{terminal.crowdLevel === "unknown" ? t("noCrowdData") : terminal.crowdLevel}</strong></div>
                       <div><Clock3 size={15} /><span>{t("waitData")}</span><strong>{terminal.estimatedWaitMinutes === null ? t("noWaitData") : `${terminal.estimatedWaitMinutes} min`}</strong></div>
                     </div>
@@ -297,6 +370,8 @@ function App() {
                   </article>
                 ))}
               </div>
+              {matchingTerminals.length > visibleTerminals.length && <p className="directory-state">{t("showingStops")} {visibleTerminals.length} / {matchingTerminals.length}</p>}
+              </>
             )}
             <p className="sample-notice">{t("sampleNotice")}</p>
           </div>
@@ -335,8 +410,11 @@ function App() {
       </main>
 
       <footer className="site-footer">
-        <a href="#home" className="footer-brand"><Navigation size={17} />{t("brand")}</a>
+        <a href="#home" className="footer-brand"><MinibusMark size={22} />{t("brand")}</a>
         <span>{t("footerTagline")}</span>
+        <span className="data-attribution">
+          {t("dataFrom")} <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> / <a href="https://addismaptransit.com/" target="_blank" rel="noreferrer">AddisMapTransit</a>
+        </span>
       </footer>
     </div>
   );

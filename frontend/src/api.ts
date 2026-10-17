@@ -23,6 +23,16 @@ export type RouteResult = {
   from: RouteStop;
   to: RouteStop;
   stops: RouteStop[];
+  legs: {
+    routeName: string;
+    routeLongName: string;
+    headsign: string;
+    from: RouteStop;
+    to: RouteStop;
+    stops: RouteStop[];
+    shape: [number, number][];
+    headwayMinutes: number | null;
+  }[];
   transfers: number;
   note: string;
   verified: boolean;

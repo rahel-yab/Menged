@@ -1,7 +1,21 @@
 import { Router } from "express";
-import { terminals } from "../data/terminals.js";
+import { transitStops } from "../data/transit.js";
 
 const router = Router();
+
+const terminals = transitStops.map((stop) => ({
+  id: stop.id,
+  name: stop.name,
+  nameAm: stop.name,
+  area: "Addis Ababa",
+  areaAm: "Addis Ababa",
+  latitude: stop.latitude,
+  longitude: stop.longitude,
+  routes: [...stop.routeNames].sort(),
+  crowdLevel: "unknown" as const,
+  estimatedWaitMinutes: null,
+  verified: false,
+}));
 
 // GET /api/terminals
 router.get("/", (_req, res) => {

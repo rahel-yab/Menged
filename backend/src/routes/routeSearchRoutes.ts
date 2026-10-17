@@ -1,108 +1,198 @@
 import { Router } from "express";
-import { terminals } from "../data/terminals.js";
+import { transitStops, transitStopsById, transitTrips, type TransitStop, type TransitTrip } from "../data/transit.js";
 
 const router = Router();
+const tripsAtStop = new Map<string, { trip: TransitTrip; index: number }[]>();
 
-// Illustrative links for the prototype. Replace with connections confirmed
-// by local taxi operators before presenting these as usable journey advice.
-const demoConnections = [
-  { fromId: 1, toId: 2, transfers: 0, note: "Example connection; confirm locally." },
-  { fromId: 1, toId: 3, viaId: 2, transfers: 1, note: "Example transfer; confirm locally." },
-  { fromId: 2, toId: 3, transfers: 0, note: "Example connection; confirm locally." },
-];
-
-function findTerminal(query: string) {
-  const normalized = query
-    .split(",", 1)[0]
-    .trim()
-    .toLocaleLowerCase();
-
-  if (!normalized) return undefined;
-
-  const fields = (terminal: (typeof terminals)[number]) => [
-    terminal.name,
-    terminal.nameAm,
-    terminal.area,
-    terminal.areaAm,
-  ].map((value) => value.toLocaleLowerCase());
-
-  return terminals.find((terminal) => fields(terminal).includes(normalized))
-    ?? terminals.find((terminal) => fields(terminal).some((value) => value.includes(normalized)));
+for (const trip of transitTrips) {
+  trip.stopIds.forEach((stopId, index) => {
+    const entries = tripsAtStop.get(stopId) ?? [];
+    entries.push({ trip, index });
+    tripsAtStop.set(stopId, entries);
+  });
 }
+
+function normalize(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function scoreStop(stop: TransitStop, query: string) {
+  const name = normalize(stop.name);
+  if (name === query) return 0;
+  if (name.startsWith(query) || query.startsWith(name)) return 1;
+  if (name.includes(query)) return 2;
+  const queryWords = query.split(" ");
+  if (queryWords.every((word) => name.includes(word))) return 3;
+  return Number.POSITIVE_INFINITY;
+}
+
+function findStops(query: string) {
+  const normalized = normalize(query);
+  if (!normalized) return [];
+  return transitStops
+    .map((stop) => ({ stop, score: scoreStop(stop, normalized) }))
+    .filter(({ score }) => Number.isFinite(score))
+    .sort((left, right) => left.score - right.score || left.stop.name.localeCompare(right.stop.name))
+    .slice(0, 30);
+}
+
+function stopView(stopId: string) {
+  const stop = transitStopsById.get(stopId)!;
+  return { id: stop.id, name: stop.name, nameAm: stop.name, area: stop.name, latitude: stop.latitude, longitude: stop.longitude };
+}
+
+type Leg = {
+  routeName: string;
+  routeLongName: string;
+  headsign: string;
+  from: ReturnType<typeof stopView>;
+  to: ReturnType<typeof stopView>;
+  stops: ReturnType<typeof stopView>[];
+  shape: [number, number][];
+  headwayMinutes: number | null;
+};
+
+function nearestShapeIndex(shape: [number, number][], stopId: string, fromIndex = 0) {
+  const stop = transitStopsById.get(stopId)!;
+  let nearestIndex = fromIndex;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (let index = fromIndex; index < shape.length; index += 1) {
+    const [latitude, longitude] = shape[index];
+    const distance = (latitude - stop.latitude) ** 2 + (longitude - stop.longitude) ** 2;
+    if (distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+  return nearestIndex;
+}
+
+function makeLeg(trip: TransitTrip, fromIndex: number, toIndex: number): Leg {
+  const stopIds = trip.stopIds.slice(fromIndex, toIndex + 1);
+  const startShapeIndex = nearestShapeIndex(trip.shapePoints, stopIds[0]);
+  const endShapeIndex = nearestShapeIndex(trip.shapePoints, stopIds[stopIds.length - 1], startShapeIndex);
+  const shape = trip.shapePoints.length > 1
+    ? trip.shapePoints.slice(startShapeIndex, endShapeIndex + 1)
+    : stopIds.map((stopId) => {
+        const stop = transitStopsById.get(stopId)!;
+        return [stop.latitude, stop.longitude] as [number, number];
+      });
+  return {
+    routeName: trip.routeName,
+    routeLongName: trip.routeLongName,
+    headsign: trip.headsign,
+    from: stopView(stopIds[0]),
+    to: stopView(stopIds[stopIds.length - 1]),
+    stops: stopIds.map(stopView),
+    shape,
+    headwayMinutes: trip.headwayMinutes,
+  };
+}
+
+type Candidate = {
+  from: ReturnType<typeof stopView>;
+  to: ReturnType<typeof stopView>;
+  stops: ReturnType<typeof stopView>[];
+  legs: Leg[];
+  transfers: number;
+  note: string;
+  verified: false;
+  score: number;
+};
 
 router.get("/search", (req, res) => {
   const fromQuery = typeof req.query.from === "string" ? req.query.from : "";
   const toQuery = typeof req.query.to === "string" ? req.query.to : "";
 
   if (!fromQuery.trim() || !toQuery.trim()) {
-    return res.status(400).json({
-      success: false,
-      messageKey: "enterBoth",
-      message: "Enter both a starting point and a destination.",
-    });
+    return res.status(400).json({ success: false, messageKey: "enterBoth", message: "Enter both a starting point and a destination." });
   }
 
-  const from = findTerminal(fromQuery);
-  const to = findTerminal(toQuery);
-
-  if (!from || !to) {
+  const origins = findStops(fromQuery);
+  const destinations = findStops(toQuery);
+  if (!origins.length || !destinations.length) {
     return res.json({
       success: true,
       verified: false,
       data: [],
       messageKey: "terminalNotFound",
-      message: "We couldn't match both places. Try Bole, Mexico, or Megenagna.",
+      message: "We couldn't match both places to a mapped minibus stop. Try choosing a name from the suggestions.",
     });
   }
 
-  if (from.id === to.id) {
-    return res.json({
-      success: true,
+  if (normalize(fromQuery) === normalize(toQuery)) {
+    return res.json({ success: true, verified: false, data: [], messageKey: "samePlace", message: "Choose two different places to find a route." });
+  }
+
+  const destinationById = new Map(destinations.map((entry) => [entry.stop.stopId, entry.score]));
+  const candidates = new Map<string, Candidate>();
+
+  const addCandidate = (legs: Leg[], matchScore: number) => {
+    const first = legs[0];
+    const last = legs[legs.length - 1];
+    const stops = [...first.stops, ...legs.slice(1).flatMap((leg) => leg.stops.slice(1))];
+    const transfers = legs.length - 1;
+    const key = legs.map((leg) => `${leg.routeName}:${leg.from.id}-${leg.to.id}`).join("|");
+    const candidate: Candidate = {
+      from: first.from,
+      to: last.to,
+      stops,
+      legs,
+      transfers,
+      note: "Mapped from the AddisMapTransit minibus GTFS feed. Check locally for current service and boarding details.",
       verified: false,
-      data: [],
-      messageKey: "samePlace",
-      message: "Choose two different places to find a route.",
-    });
+      score: matchScore * 100 + transfers * 8 + stops.length,
+    };
+    const existing = candidates.get(key);
+    if (!existing || candidate.score < existing.score) candidates.set(key, candidate);
+  };
+
+  for (const { stop: origin, score: originScore } of origins) {
+    for (const boarding of tripsAtStop.get(origin.stopId) ?? []) {
+      const { trip, index: boardIndex } = boarding;
+      for (let alightIndex = boardIndex + 1; alightIndex < trip.stopIds.length; alightIndex += 1) {
+        const destinationScore = destinationById.get(trip.stopIds[alightIndex]);
+        if (destinationScore === undefined) continue;
+        addCandidate([makeLeg(trip, boardIndex, alightIndex)], originScore + destinationScore);
+      }
+    }
   }
 
-  const connection = demoConnections.find(
-    (item) => item.fromId === from.id && item.toId === to.id,
-  ) ?? demoConnections.find(
-    (item) => item.fromId === to.id && item.toId === from.id,
-  );
-
-  if (!connection) {
-    return res.json({
-      success: true,
-      verified: false,
-      data: [],
-      messageKey: "noConnection",
-      message: "No example connection is listed for these places yet.",
-    });
+  // Find one-transfer journeys by connecting two directional GTFS trips at a shared stop.
+  for (const { stop: origin, score: originScore } of origins) {
+    for (const firstBoarding of tripsAtStop.get(origin.stopId) ?? []) {
+      const { trip: firstTrip, index: firstBoardIndex } = firstBoarding;
+      for (let transferIndex = firstBoardIndex + 1; transferIndex < firstTrip.stopIds.length; transferIndex += 1) {
+        const transferId = firstTrip.stopIds[transferIndex];
+        for (const secondBoarding of tripsAtStop.get(transferId) ?? []) {
+          const { trip: secondTrip, index: secondBoardIndex } = secondBoarding;
+          if (secondTrip.routeId === firstTrip.routeId) continue;
+          for (let alightIndex = secondBoardIndex + 1; alightIndex < secondTrip.stopIds.length; alightIndex += 1) {
+            const destinationScore = destinationById.get(secondTrip.stopIds[alightIndex]);
+            if (destinationScore === undefined) continue;
+            addCandidate([
+              makeLeg(firstTrip, firstBoardIndex, transferIndex),
+              makeLeg(secondTrip, secondBoardIndex, alightIndex),
+            ], originScore + destinationScore);
+          }
+        }
+      }
+    }
   }
 
-  const first = terminals.find((terminal) => terminal.id === connection.fromId)!;
-  const second = terminals.find((terminal) => terminal.id === connection.toId)!;
-  const via = "viaId" in connection
-    ? terminals.find((terminal) => terminal.id === connection.viaId)
-    : undefined;
-  const stops = from.id === first.id
-    ? [first, ...(via ? [via] : []), second]
-    : [second, ...(via ? [via] : []), first];
+  const results = [...candidates.values()]
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 5)
+    .map(({ score: _score, ...result }) => result);
 
   return res.json({
     success: true,
     verified: false,
-    data: [{
-      from: { id: from.id, name: from.name, nameAm: from.nameAm, area: from.area, latitude: from.latitude, longitude: from.longitude },
-      to: { id: to.id, name: to.name, nameAm: to.nameAm, area: to.area, latitude: to.latitude, longitude: to.longitude },
-      stops: stops.map(({ id, name, nameAm, area, latitude, longitude }) => ({
-        id, name, nameAm, area, latitude, longitude,
-      })),
-      transfers: connection.transfers,
-      note: connection.note,
-      verified: false,
-    }],
+    data: results,
+    ...(results.length ? {} : {
+      messageKey: "noConnection",
+      message: "No mapped minibus route was found between those stops. Try a nearby stop name.",
+    }),
   });
 });
 

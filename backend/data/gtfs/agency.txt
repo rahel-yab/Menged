@@ -1,0 +1,2 @@
+agency_id,agency_lang,agency_name,agency_url,agency_timezone
+AA,en,Addis Ababa Transport (Minibus),https://addismaptransit.com/,Africa/Addis_Ababa

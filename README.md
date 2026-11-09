@@ -2,13 +2,12 @@
 
 Menged is a bilingual English and Amharic route finder for Addis Ababa's mapped minibus network.
 
-> **Data limits:** Route suggestions use a static AddisMapTransit GTFS snapshot. They are not live taxi locations or seat availability, and routes, service frequency, and stop names can change. Confirm the boarding point with a driver before travelling. Fares are not included.
 
 ## What the project includes
 
 - A responsive React interface with English and Amharic content.
 - A directory of 953 mapped minibus stops with map pins.
-- Route search for direct trips and one-transfer journeys, with selectable alternatives, stop-by-stop details, and mapped line geometry.
+- Route search for direct trips and one-transfer journeys, with minibus line IDs and stop sequences.
 - An Express API for health checks, station records, and route search.
 - OpenStreetMap tiles for the terminal map.
 
@@ -33,23 +32,23 @@ Open two PowerShell terminals in the repository folder. Start the API first.
 
 ```powershell
 cd backend
-npm.cmd ci
-npm.cmd run dev
+npm ci
+npm run dev
 ```
 
 The API listens on `http://localhost:3000`.
 
 ```powershell
-npm.cmd run build
-npm.cmd start
+npm run build
+npm start
 ```
 
 **Terminal 2 — web app**
 
 ```powershell
 cd frontend
-npm.cmd ci
-npm.cmd run dev
+npm ci
+npm run dev
 ```
 
 Open the local Vite URL printed in the terminal, normally `http://localhost:5173`. Vite forwards `/api` requests to the local API.
@@ -84,10 +83,10 @@ Run these commands from their respective folders:
 
 ```powershell
 # backend
-npm.cmd run build
+npm run build
 
 # frontend
-npm.cmd run build
+npm run build
 ```
 
 ## Data and contributions
